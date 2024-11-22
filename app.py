@@ -16,7 +16,7 @@ DB_FOLDER = "data"
 DB_FILE = os.path.join(DB_FOLDER, "context.db")
 
 # Максимальное количество сообщений в контексте
-MAX_CONTEXT_LENGTH = 10  # Храним только последние 10 сообщений
+MAX_CONTEXT_LENGTH = 2  # Передаем только последние 2 сообщения
 
 
 # Инициализация базы данных
@@ -87,8 +87,8 @@ def chat():
     # Загружаем последние сообщения из базы данных
     context = load_messages()
 
-    # Формируем запрос для модели с учетом контекста
-    inputs = "\n".join([f"{item['role'].capitalize()}: {item['content']}" for item in context])
+    # Формируем запрос для модели
+    inputs = "\n".join([f"# {item['role'].capitalize()}: {item['content']}" for item in context])
     payload = {"inputs": inputs}
 
     # Отправляем запрос к Hugging Face API
@@ -105,6 +105,9 @@ def chat():
         print(f"Ошибка при запросе к API: {e}")
         return jsonify({"error": "Ошибка при обращении к API Hugging Face"}), 500
 
+    # Фильтруем ответ (удаляем лишние символы или строки)
+    bot_message = filter_response(bot_message)
+
     # Сохраняем ответ бота в базу данных
     save_message("bot", bot_message)
 
@@ -112,18 +115,12 @@ def chat():
     return jsonify({"message": bot_message})
 
 
-@app.route("/save", methods=["POST"])
-def save():
-    """Сохраняет сообщение в файл."""
-    message = request.json.get("message")
-    if not message:
-        return jsonify({"error": "Сообщение не может быть пустым"}), 400
-
-    # Сохраняем сообщение в файл
-    with open("saved_messages.txt", "a", encoding="utf-8") as file:
-        file.write(message + "\n")
-
-    return jsonify({"success": True, "message": "Сообщение сохранено."})
+def filter_response(response):
+    """Фильтрует ответ модели, удаляя лишние символы или строки."""
+    # Убираем повторения контекста
+    lines = response.split("\n")
+    filtered_lines = [line for line in lines if not line.startswith("User:")]
+    return "\n".join(filtered_lines).strip()
 
 
 if __name__ == "__main__":
