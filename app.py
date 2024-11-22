@@ -22,10 +22,8 @@ MAX_CONTEXT_LENGTH = 10  # Храним только последние 10 со�
 # Инициализация базы данных
 def init_db():
     """Создает папку для базы данных и таблицу для хранения контекста, если они не существуют."""
-    # Создаем папку для базы данных, если её нет
     os.makedirs(DB_FOLDER, exist_ok=True)
 
-    # Создаем таблицу для хранения сообщений
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("""
@@ -110,10 +108,22 @@ def chat():
     # Сохраняем ответ бота в базу данных
     save_message("bot", bot_message)
 
-    # Загружаем обновленный контекст
-    context = load_messages()
+    # Возвращаем только последнее сообщение бота
+    return jsonify({"message": bot_message})
 
-    return jsonify({"message": bot_message, "context": context})
+
+@app.route("/save", methods=["POST"])
+def save():
+    """Сохраняет сообщение в файл."""
+    message = request.json.get("message")
+    if not message:
+        return jsonify({"error": "Сообщение не может быть пустым"}), 400
+
+    # Сохраняем сообщение в файл
+    with open("saved_messages.txt", "a", encoding="utf-8") as file:
+        file.write(message + "\n")
+
+    return jsonify({"success": True, "message": "Сообщение сохранено."})
 
 
 if __name__ == "__main__":
