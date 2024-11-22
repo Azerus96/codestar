@@ -1,139 +1,86 @@
 from flask import Flask, render_template, request, jsonify
-import requests
-import config
-import sqlite3
-import os
-from datetime import datetime
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
 
 app = Flask(__name__)
 
-# Hugging Face API URL для CodeStar
-API_URL = "https://api-inference.huggingface.co/models/bigcode/starcoder"
-HEADERS = {"Authorization": f"Bearer {config.HUGGING_FACE_API_KEY}"}
+# Загружаем токенизатор и модель
+print("Загружаем модель и токенизатор...")
+tokenizer = AutoTokenizer.from_pretrained("bigcode/starcoder")
+model = AutoModelForCausalLM.from_pretrained("bigcode/starcoder")
 
-# Путь к базе данных
-DB_FOLDER = "data"
-DB_FILE = os.path.join(DB_FOLDER, "context.db")
-
-# Максимальное количество сообщений в контексте
-MAX_CONTEXT_LENGTH = 2  # Передаем только последние 2 сообщения
-
-
-# Инициализация базы данных
-def init_db():
-    """Создает папку для базы данных и таблицу для хранения контекста, если они не существуют."""
-    os.makedirs(DB_FOLDER, exist_ok=True)
-
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            timestamp TEXT NOT NULL
-        )
-    """)
-    conn.commit()
-    conn.close()
+# Если доступен GPU, переносим модель на GPU
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = model.to(device)
+print(f"Модель загружена на устройство: {device}")
 
 
-# Сохранение сообщения в базу данных
-def save_message(role, content):
-    """Сохраняет сообщение в базу данных."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO messages (role, content, timestamp)
-        VALUES (?, ?, ?)
-    """, (role, content, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-    conn.commit()
-    conn.close()
+def generate_code(input_text, max_length=150, temperature=0.7, top_p=0.9, top_k=50, num_return_sequences=1):
+    """
+    Генерирует код на основе входного текста с использованием настроек генерации.
+    """
+    # Токенизация текста
+    inputs = tokenizer(input_text, return_tensors="pt").to(device)
 
+    # Генерация текста
+    outputs = model.generate(
+        **inputs,
+        max_length=max_length,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k,
+        num_return_sequences=num_return_sequences,
+        pad_token_id=tokenizer.eos_token_id  # Указываем токен для окончания текста
+    )
 
-# Загрузка сообщений из базы данных
-def load_messages():
-    """Загружает последние сообщения из базы данных."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT role, content, timestamp
-        FROM messages
-        ORDER BY id DESC
-        LIMIT ?
-    """, (MAX_CONTEXT_LENGTH,))
-    rows = cursor.fetchall()
-    conn.close()
-
-    # Возвращаем сообщения в обратном порядке (от старых к новым)
-    return [{"role": row[0], "content": row[1], "timestamp": row[2]} for row in reversed(rows)]
+    # Декодируем все варианты
+    generated_texts = [tokenizer.decode(output, skip_special_tokens=True) for output in outputs]
+    return generated_texts
 
 
 @app.route("/")
 def index():
+    """
+    Главная страница с формой для ввода запросов.
+    """
     return render_template("index.html")
 
 
-@app.route("/chat", methods=["POST"])
-def chat():
-    # Получаем сообщение от пользователя
-    user_message = request.json.get("message")
-    if not user_message:
-        return jsonify({"error": "Сообщение не может быть пустым"}), 400
+@app.route("/generate", methods=["POST"])
+def generate():
+    """
+    Обрабатывает запросы на генерацию кода.
+    """
+    # Получаем входной текст от пользователя
+    user_input = request.json.get("input_text")
+    if not user_input:
+        return jsonify({"error": "Пожалуйста, введите текст запроса."}), 400
 
-    # Сохраняем сообщение пользователя в базу данных
-    save_message("user", user_message)
+    # Настройки генерации (можно изменить по запросу)
+    max_length = request.json.get("max_length", 150)
+    temperature = request.json.get("temperature", 0.7)
+    top_p = request.json.get("top_p", 0.9)
+    top_k = request.json.get("top_k", 50)
+    num_return_sequences = request.json.get("num_return_sequences", 1)
 
-    # Загружаем последние сообщения из базы данных
-    context = load_messages()
-
-    # Форматируем запрос для модели
-    inputs = format_request(context)
-    payload = {"inputs": inputs}
-
-    # Отправляем запрос к Hugging Face API
     try:
-        response = requests.post(API_URL, headers=HEADERS, json=payload)
+        # Генерация кода
+        generated_texts = generate_code(
+            input_text=user_input,
+            max_length=max_length,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            num_return_sequences=num_return_sequences
+        )
 
-        if response.status_code != 200:
-            print(f"Ошибка API: {response.status_code}, {response.text}")
-            return jsonify({"error": "Ошибка при обращении к API Hugging Face"}), 500
+        # Возвращаем результат
+        return jsonify({"generated_texts": generated_texts})
 
-        # Извлекаем сгенерированный текст из ответа
-        bot_message = response.json()[0].get("generated_text", "Ошибка генерации ответа.")
     except Exception as e:
-        print(f"Ошибка при запросе к API: {e}")
-        return jsonify({"error": "Ошибка при обращении к API Hugging Face"}), 500
-
-    # Фильтруем ответ (удаляем лишние строки или повторения)
-    bot_message = filter_response(bot_message)
-
-    # Сохраняем ответ бота в базу данных
-    save_message("bot", bot_message)
-
-    # Возвращаем только последнее сообщение бота
-    return jsonify({"message": bot_message})
-
-
-def format_request(context):
-    """Форматирует запрос для модели."""
-    formatted = []
-    for item in context:
-        if item["role"] == "user":
-            formatted.append(f"# User: {item['content']}")
-        elif item["role"] == "bot":
-            formatted.append(f"# Bot: {item['content']}")
-    return "\n".join(formatted)
-
-
-def filter_response(response):
-    """Фильтрует ответ модели, удаляя лишние строки или повторения."""
-    lines = response.split("\n")
-    filtered_lines = [line for line in lines if not line.startswith("User:")]
-    return "\n".join(filtered_lines).strip()
+        return jsonify({"error": f"Ошибка генерации: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
-    # Инициализируем базу данных при запуске приложения
-    init_db()
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    # Запуск Flask-сервера
+    app.run(host="0.0.0.0", port=5000, debug=True)
