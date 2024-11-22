@@ -3,19 +3,84 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chat with AI</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <title>Starcoder Code Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+        }
+        .container {
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            margin-bottom: 10px;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .output {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
 </head>
 <body>
-    <div class="chat-container">
-        <div id="chat-window">
-            <!-- Сообщения будут добавляться сюда -->
-        </div>
-        <div class="input-container">
-            <textarea id="user-input" placeholder="Введите сообщение..."></textarea>
-            <button id="send-button">Отправить</button>
-        </div>
+    <div class="container">
+        <h1>Starcoder Code Generator</h1>
+        <textarea id="input-text" placeholder="Введите текст запроса..."></textarea>
+        <button id="generate-button">Сгенерировать</button>
+        <div class="output" id="output"></div>
     </div>
-    <script src="/static/script.js"></script>
+
+    <script>
+        document.getElementById("generate-button").addEventListener("click", async () => {
+            const inputText = document.getElementById("input-text").value;
+            const outputDiv = document.getElementById("output");
+            outputDiv.innerHTML = "Генерация...";
+
+            try {
+                const response = await fetch("/generate", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ input_text: inputText })
+                });
+
+                const data = await response.json();
+                if (data.error) {
+                    outputDiv.innerHTML = `<span style="color: red;">Ошибка: ${data.error}`;
+                } else {
+                    outputDiv.innerHTML = data.generated_texts.map((text, i) => `
+${text}</pre>`).join("<hr>");
+                }
+            } catch (err) {
+                outputDiv.innerHTML = `<span style="color: red;">Ошибка: ${err.message}</span>`;
+            }
+        });
+    </script>
 </body>
 </html>
