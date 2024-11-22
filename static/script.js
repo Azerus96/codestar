@@ -32,7 +32,34 @@ function addMessage(role, text) {
     const chatWindow = document.getElementById("chat-window");
     const messageDiv = document.createElement("div");
     messageDiv.className = `message ${role}`;
-    messageDiv.innerHTML = text;
+
+    // Текст сообщения
+    const messageText = document.createElement("span");
+    messageText.innerText = text;
+
+    // Кнопка "Сохранить"
+    const saveButton = document.createElement("button");
+    saveButton.innerText = "Сохранить";
+    saveButton.className = "save-button";
+    saveButton.onclick = () => saveMessage(text);
+
+    messageDiv.appendChild(messageText);
+    messageDiv.appendChild(saveButton);
     chatWindow.appendChild(messageDiv);
-    chatWindow.scrollTop = chatWindow.scrollHeight;
+    chatWindow.scrollTop = chatWindow.scrollHeight; // Прокрутка вниз
+}
+
+async function saveMessage(message) {
+    const response = await fetch("/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+    });
+
+    const data = await response.json();
+    if (data.success) {
+        alert("Сообщение сохранено!");
+    } else {
+        alert("Ошибка сохранения сообщения.");
+    }
 }
