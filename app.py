@@ -87,8 +87,8 @@ def chat():
     # Загружаем последние сообщения из базы данных
     context = load_messages()
 
-    # Формируем запрос для модели
-    inputs = "\n".join([f"# {item['role'].capitalize()}: {item['content']}" for item in context])
+    # Форматируем запрос для модели
+    inputs = format_request(context)
     payload = {"inputs": inputs}
 
     # Отправляем запрос к Hugging Face API
@@ -105,7 +105,7 @@ def chat():
         print(f"Ошибка при запросе к API: {e}")
         return jsonify({"error": "Ошибка при обращении к API Hugging Face"}), 500
 
-    # Фильтруем ответ (удаляем лишние символы или строки)
+    # Фильтруем ответ (удаляем лишние строки или повторения)
     bot_message = filter_response(bot_message)
 
     # Сохраняем ответ бота в базу данных
@@ -115,9 +115,19 @@ def chat():
     return jsonify({"message": bot_message})
 
 
+def format_request(context):
+    """Форматирует запрос для модели."""
+    formatted = []
+    for item in context:
+        if item["role"] == "user":
+            formatted.append(f"# User: {item['content']}")
+        elif item["role"] == "bot":
+            formatted.append(f"# Bot: {item['content']}")
+    return "\n".join(formatted)
+
+
 def filter_response(response):
-    """Фильтрует ответ модели, удаляя лишние символы или строки."""
-    # Убираем повторения контекста
+    """Фильтрует ответ модели, удаляя лишние строки или повторения."""
     lines = response.split("\n")
     filtered_lines = [line for line in lines if not line.startswith("User:")]
     return "\n".join(filtered_lines).strip()
