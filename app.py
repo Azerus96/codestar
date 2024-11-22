@@ -1,15 +1,12 @@
 from flask import Flask, render_template, request, jsonify
-from transformers import pipeline
-import config  # Импортируем наш конфиг
+import requests
+import config
 
 app = Flask(__name__)
 
-# Инициализация модели Hugging Face с использованием токена
-model_name = "facebook/blenderbot-400M-distill"  # Пример модели
-chatbot = pipeline("conversational", model=model_name, use_auth_token=config.HUGGING_FACE_API_KEY)
-
-# Хранилище контекста
-context = []
+# Hugging Face API URL для CodeStar
+API_URL = "https://api-inference.huggingface.co/models/bigcode/starcoder"
+HEADERS = {"Authorization": f"Bearer {config.HUGGING_FACE_API_KEY}"}
 
 @app.route("/")
 def index():
@@ -17,22 +14,24 @@ def index():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-    global context
     user_message = request.json.get("message")
     if not user_message:
         return jsonify({"error": "Сообщение не может быть пустым"}), 400
 
-    # Добавляем сообщение пользователя в контекст
-    context.append({"role": "user", "content": user_message})
+    # Отправляем запрос к модели CodeStar
+    response = requests.post(
+        API_URL,
+        headers=HEADERS,
+        json={"inputs": user_message}
+    )
 
-    # Генерация ответа от модели
-    response = chatbot(user_message)
-    bot_message = response[0]["generated_text"]
+    if response.status_code != 200:
+        return jsonify({"error": "Ошибка при обращении к API Hugging Face"}), 500
 
-    # Добавляем ответ бота в контекст
-    context.append({"role": "bot", "content": bot_message})
+    # Получаем ответ от модели
+    bot_message = response.json().get("generated_text", "Ошибка генерации ответа.")
 
-    return jsonify({"message": bot_message, "context": context})
+    return jsonify({"message": bot_message})
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=False)
